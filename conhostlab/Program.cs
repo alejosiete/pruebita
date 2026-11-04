@@ -56,6 +56,13 @@ internal static class Program
             }, 6000);
             if (!found) return Inconclusive("console_host_not_direct_child");
             Check("genuine_conhost_direct_child_observed", true);
+            var beforeWorker = ManagedConsoleIdentity();
+            if (beforeWorker == null) return Inconclusive("console_identity_unavailable");
+            Check("system_image_and_parent_validated", ValidIdentity(beforeWorker.Value, beforeWorker.Value, console, true));
+            Check("forged_executable_path_rejected", !ValidIdentity(beforeWorker.Value with { Image = "synthetic-conhost.exe" }, beforeWorker.Value, console, true));
+            Check("changed_identity_rejected", !ValidIdentity(beforeWorker.Value with { StartedTicks = beforeWorker.Value.StartedTicks - 1 }, beforeWorker.Value, console, true));
+            Check("unrelated_parent_claim_rejected", !ValidIdentity(beforeWorker.Value with { Parent = uint.MaxValue }, beforeWorker.Value, console, true));
+            Check("extra_child_claim_rejected", !ValidIdentity(beforeWorker.Value, beforeWorker.Value, new Counts(2, 1), true));
             Check("zero_child_rule_blocked_without_workers", console.Total > 0);
 
             string dll = typeof(Program).Assembly.Location;
@@ -72,6 +79,8 @@ internal static class Program
             }, 800);
             if (!workerVisible) return Inconclusive("synthetic_worker_parentage_not_observed");
             Check("synthetic_worker_observed", true);
+            Check("unfinished_worker_rejected", !ValidIdentity(beforeWorker.Value, beforeWorker.Value, DirectChildren(), false));
+            Check("unknown_running_child_rejected", !ValidIdentity(beforeWorker.Value, beforeWorker.Value, DirectChildren(), true));
             if (!worker.WaitForExit(8000))
             {
                 // Only the exact synthetic process launched by this experiment.
@@ -90,6 +99,9 @@ internal static class Program
             if (!consoleOnly) return Inconclusive("console_host_not_retained_after_worker");
             Check("only_console_child_remains", true);
             Check("old_zero_child_gate_remains_blocked", after.Total > 0);
+            var afterWorker = ManagedConsoleIdentity();
+            if (afterWorker == null) return Inconclusive("console_identity_after_worker_unavailable");
+            Check("live_identity_stable_after_worker", ValidIdentity(beforeWorker.Value, afterWorker.Value, after, true));
 
             Win.ClosePseudoConsole(pseudo);
             pseudo = IntPtr.Zero;
@@ -131,7 +143,31 @@ internal static class Program
         } while (sw.ElapsedMilliseconds < timeoutMs);
         return f();
     }
-    readonly record struct Counts(int Total, int Conhost);
+    readonly record struct ManagedIdentity(uint Pid, uint Parent, long StartedTicks, string Image);
+    static ManagedIdentity? ManagedConsoleIdentity()
+    {
+        var children = DirectChildren();
+        if (children.Total != 1 || children.Conhost != 1 || children.ConsolePid == 0) return null;
+        try
+        {
+            using var process = Process.GetProcessById(checked((int)children.ConsolePid));
+            if (process.HasExited || !string.Equals(process.ProcessName, "conhost", StringComparison.OrdinalIgnoreCase)) return null;
+            return new ManagedIdentity(children.ConsolePid, (uint)Environment.ProcessId,
+                process.StartTime.ToUniversalTime().Ticks, process.MainModule?.FileName ?? "");
+        }
+        catch { return null; }
+    }
+    static bool ValidIdentity(ManagedIdentity claimed, ManagedIdentity observed, Counts children, bool workersFinished)
+    {
+        return workersFinished && children.Total == 1 && children.Conhost == 1 &&
+            claimed.Pid != 0 && claimed.Pid == children.ConsolePid &&
+            claimed.Parent == (uint)Environment.ProcessId &&
+            claimed == observed &&
+            string.Equals(claimed.Image,
+                System.IO.Path.Combine(Environment.SystemDirectory, "conhost.exe"),
+                StringComparison.OrdinalIgnoreCase);
+    }
+    readonly record struct Counts(int Total, int Conhost, uint ConsolePid = 0);
     static Counts DirectChildren()
     {
         IntPtr snap = Win.CreateToolhelp32Snapshot(0x00000002, 0);
@@ -140,6 +176,7 @@ internal static class Program
         {
             var entry = new Win.ProcessEntry { Size = (uint)Marshal.SizeOf<Win.ProcessEntry>(), FileName = "" };
             int total = 0, console = 0;
+            uint consolePid = 0;
             bool ok = Win.Process32FirstW(snap, ref entry);
             if (!ok) throw new InvalidOperationException("process_snapshot_empty");
             uint own = (uint)Environment.ProcessId;
@@ -148,11 +185,11 @@ internal static class Program
                 if (entry.ParentProcessId == own)
                 {
                     total++;
-                    if (string.Equals(entry.FileName, "conhost.exe", StringComparison.OrdinalIgnoreCase)) console++;
+                    if (string.Equals(entry.FileName, "conhost.exe", StringComparison.OrdinalIgnoreCase)) { console++; consolePid = entry.ProcessId; }
                 }
                 entry.Size = (uint)Marshal.SizeOf<Win.ProcessEntry>();
             } while (Win.Process32NextW(snap, ref entry));
-            return new Counts(total, console);
+            return new Counts(total, console, consolePid);
         }
         finally { Win.CloseHandle(snap); }
     }
