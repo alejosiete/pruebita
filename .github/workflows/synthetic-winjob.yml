@@ -1,4 +1,4 @@
-name: Synthetic Windows Job Object Test
+name: Synthetic Windows Job Object and Console-Host Tests
 on:
   push:
     branches:
@@ -26,10 +26,17 @@ jobs:
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # pinned v4.4.0
         with:
           persist-credentials: false
-      - name: Compile and execute synthetic Win32 Job Object tests
+      - name: Run previously qualified synthetic Job Object control
         shell: pwsh
         run: |
           dotnet build .\joblab\JobLab.csproj -c Release --nologo
-          if ($LASTEXITCODE -ne 0) { throw 'LAB_FAIL build_failed' }
+          if ($LASTEXITCODE -ne 0) { throw 'LAB_FAIL existing_build_failed' }
           dotnet .\joblab\bin\Release\net8.0\JobLab.dll
-          if ($LASTEXITCODE -ne 0) { throw 'LAB_FAIL native_test_failed' }
+          if ($LASTEXITCODE -ne 0) { throw 'LAB_FAIL existing_test_failed' }
+      - name: Build and run synthetic console-host reproduction
+        shell: pwsh
+        run: |
+          dotnet build .\conhostlab\ConhostLab.csproj -c Release --nologo
+          if ($LASTEXITCODE -ne 0) { throw 'LAB_FAIL conhost_build_failed' }
+          dotnet .\conhostlab\bin\Release\net8.0\ConhostLab.dll
+          if ($LASTEXITCODE -ne 0) { throw 'LAB_NOT_PROVEN conhost_experiment' }
