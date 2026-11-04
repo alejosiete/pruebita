@@ -1,0 +1,35 @@
+name: Synthetic Windows Job Object Test
+on:
+  push:
+    branches:
+      - experiment/windows-job-object-20261104
+permissions:
+  contents: read
+concurrency:
+  group: synthetic-winjob-20261104
+  cancel-in-progress: false
+jobs:
+  synthetic-job:
+    runs-on: windows-2025
+    timeout-minutes: 8
+    env:
+      SYNTHETIC_WINJOB_APPROVED: 'true'
+    steps:
+      - name: Confirm disposable hosted Windows runner
+        shell: pwsh
+        run: |
+          if ($env:GITHUB_ACTIONS -ne 'true' -or $env:RUNNER_OS -ne 'Windows' -or $env:RUNNER_ENVIRONMENT -ne 'github-hosted') {
+            throw 'STOP: GitHub-hosted Windows runner was not verified'
+          }
+          Write-Output 'PASS hosted_windows_runner'
+      - name: Checkout synthetic-only experiment
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # pinned v4.4.0
+        with:
+          persist-credentials: false
+      - name: Compile and execute synthetic Win32 Job Object tests
+        shell: pwsh
+        run: |
+          dotnet build .\joblab\JobLab.csproj -c Release --nologo
+          if ($LASTEXITCODE -ne 0) { throw 'LAB_FAIL build_failed' }
+          dotnet .\joblab\bin\Release\net8.0\JobLab.dll
+          if ($LASTEXITCODE -ne 0) { throw 'LAB_FAIL native_test_failed' }
