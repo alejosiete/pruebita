@@ -1,0 +1,9 @@
+{
+  "synthetic": true,
+  "page_id": "demo-001",
+  "language": "en",
+  "sections": [
+    {"id": "intro", "text": "Synthetic introduction for a CI demonstration."},
+    {"id": "next", "text": "Synthetic next step. No live service is connected."}
+  ]
+}

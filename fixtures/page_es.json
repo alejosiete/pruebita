@@ -1,0 +1,9 @@
+{
+  "synthetic": true,
+  "page_id": "demo-001",
+  "language": "es",
+  "sections": [
+    {"id": "intro", "text": "Introduccion sintetica para demostrar la integracion continua."},
+    {"id": "next", "text": "Siguiente paso sintetico. Sin conexion a servicios reales."}
+  ]
+}

@@ -1,0 +1,54 @@
+name: TFST managed CI - synthetic demonstration only
+on:
+  push:
+    branches:
+      - experiment/tfst-managed-ci-20261105
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: tfst-managed-ci-synthetic-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  build_and_test:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 6
+    env:
+      TFST_SYNTHETIC_ONLY: 'true'
+    outputs:
+      fixture_hash: ${{ steps.digest.outputs.fixture_hash }}
+    steps:
+      - name: Checkout exact workflow revision
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+          ref: ${{ github.sha }}
+      - name: Verify isolated hosted runner
+        run: python3 tools/runner_guard.py
+      - name: Run synthetic tests
+        run: python3 -m unittest discover -s tests -v
+      - name: Validate synthetic bilingual fixture
+        run: python3 tools/validate_fixture.py
+      - name: Compute output fingerprint
+        id: digest
+        run: python3 tools/compute_digest.py --write-output
+  independent_verify:
+    needs: build_and_test
+    runs-on: ubuntu-24.04
+    timeout-minutes: 6
+    env:
+      TFST_SYNTHETIC_ONLY: 'true'
+    steps:
+      - name: Checkout exact workflow revision on a second hosted runner
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+          ref: ${{ github.sha }}
+      - name: Verify isolated hosted runner
+        run: python3 tools/runner_guard.py
+      - name: Verify build output fingerprint against same source revision
+        env:
+          EXPECTED_FIXTURE_HASH: ${{ needs.build_and_test.outputs.fixture_hash }}
+        run: python3 tools/compute_digest.py --verify-env
+      - name: Independently validate fixture
+        run: python3 tools/validate_fixture.py
